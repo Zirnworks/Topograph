@@ -9,6 +9,7 @@ export class TerrainRenderer {
   private hmWidth = 0;
   private hmHeight = 0;
   private heightScale = 0.3;
+  private texture: THREE.Texture | null = null;
 
   getMesh(): THREE.Mesh | null {
     return this.mesh;
@@ -169,15 +170,65 @@ export class TerrainRenderer {
     }
   }
 
+  /**
+   * Apply a PNG image as the terrain's diffuse texture.
+   * The image should be in top-down orthographic projection (matching UV space).
+   */
+  applyTexture(pngBytes: Uint8Array): void {
+    if (!this.mesh) return;
+
+    const blob = new Blob([pngBytes], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
+
+    const loader = new THREE.TextureLoader();
+    loader.load(url, (tex) => {
+      URL.revokeObjectURL(url);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+
+      // Dispose old texture if any
+      this.texture?.dispose();
+      this.texture = tex;
+
+      const mat = this.mesh!.material as THREE.MeshStandardMaterial;
+      mat.map = tex;
+      mat.color.set(0xffffff); // neutral tint so texture colors show accurately
+      mat.needsUpdate = true;
+    });
+  }
+
+  /**
+   * Remove any applied texture and revert to the default green material.
+   */
+  clearTexture(): void {
+    if (!this.mesh) return;
+    this.texture?.dispose();
+    this.texture = null;
+
+    const mat = this.mesh.material as THREE.MeshStandardMaterial;
+    mat.map = null;
+    mat.color.set(0x8fbc8f);
+    mat.needsUpdate = true;
+  }
+
+  hasTexture(): boolean {
+    return this.texture !== null;
+  }
+
   dispose(scene: THREE.Scene): void {
     if (this.mesh) {
       scene.remove(this.mesh);
       this.geometry?.dispose();
+      this.texture?.dispose();
       (this.mesh.material as THREE.Material).dispose();
       this.mesh = null;
       this.geometry = null;
       this.positionAttr = null;
       this.normalAttr = null;
+      this.texture = null;
     }
   }
 }

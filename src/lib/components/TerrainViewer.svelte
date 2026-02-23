@@ -58,6 +58,14 @@
     return sceneManager.captureOrthographic(512);
   }
 
+  export function applyTexture(pngBytes: Uint8Array) {
+    terrainRenderer.applyTexture(pngBytes);
+  }
+
+  export function clearTexture() {
+    terrainRenderer.clearTexture();
+  }
+
   function setupBrushCursor() {
     if (!sceneManager) return;
     if (brushCursor) {

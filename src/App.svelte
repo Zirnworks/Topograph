@@ -166,6 +166,8 @@
     try {
       const hm = await runDepthEstimation(inpaintResult, currentMask);
       viewer.rebuildFromFull(hm);
+      // Project the AI image as a texture onto the terrain
+      viewer.applyTexture(inpaintResult);
       handleCloseAI();
     } catch (e: any) {
       aiError = e?.message || String(e);
