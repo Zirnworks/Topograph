@@ -1,3 +1,4 @@
+mod ai;
 mod commands;
 mod erosion;
 mod heightmap;
@@ -19,6 +20,8 @@ pub fn run() {
             commands::run_thermal_erosion,
             commands::run_hydraulic_erosion,
             commands::abort_erosion,
+            commands::run_depth_estimation,
+            commands::run_inpainting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Topograph");

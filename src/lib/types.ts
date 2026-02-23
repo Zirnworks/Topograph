@@ -51,3 +51,6 @@ export interface HydraulicParams {
   erosionRadius: number;
   gravity: number;
 }
+
+export type AIStatus = "idle" | "running" | "error";
+

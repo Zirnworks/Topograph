@@ -80,3 +80,27 @@ export async function runHydraulicErosion(
 export async function abortErosion(): Promise<void> {
   await invoke("abort_erosion");
 }
+
+export async function runDepthEstimation(
+  imageData: Uint8Array,
+  maskData?: Uint8Array
+): Promise<HeightmapData> {
+  const buffer: ArrayBuffer = await invoke("run_depth_estimation", {
+    imageData: Array.from(imageData),
+    maskData: maskData ? Array.from(maskData) : null,
+  });
+  return parseResponse(buffer) as HeightmapData;
+}
+
+export async function runInpainting(
+  imageData: Uint8Array,
+  maskData: Uint8Array,
+  prompt: string
+): Promise<Uint8Array> {
+  const result: number[] = await invoke("run_inpainting", {
+    imageData: Array.from(imageData),
+    maskData: Array.from(maskData),
+    prompt,
+  });
+  return new Uint8Array(result);
+}

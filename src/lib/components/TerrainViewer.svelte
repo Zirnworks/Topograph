@@ -53,6 +53,11 @@
     setupBrushCursor();
   }
 
+  export function captureTopDown(): Uint8Array | null {
+    if (!sceneManager) return null;
+    return sceneManager.captureOrthographic(512);
+  }
+
   function setupBrushCursor() {
     if (!sceneManager) return;
     if (brushCursor) {
