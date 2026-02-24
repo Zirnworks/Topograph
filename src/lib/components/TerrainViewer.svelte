@@ -55,11 +55,11 @@
 
   export function captureTopDown(): Uint8Array | null {
     if (!sceneManager) return null;
-    return sceneManager.captureOrthographic(512);
+    return sceneManager.captureOrthographic(512, terrainRenderer.getMesh() ?? undefined);
   }
 
-  export function applyTexture(pngBytes: Uint8Array) {
-    terrainRenderer.applyTexture(pngBytes);
+  export async function compositeTexture(pngBytes: Uint8Array, maskBytes: Uint8Array) {
+    await terrainRenderer.compositeTexture(pngBytes, maskBytes);
   }
 
   export function clearTexture() {

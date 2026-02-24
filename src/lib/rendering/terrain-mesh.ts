@@ -10,6 +10,9 @@ export class TerrainRenderer {
   private hmHeight = 0;
   private heightScale = 0.3;
   private texture: THREE.Texture | null = null;
+  /** Persistent canvas that accumulates AI texture edits */
+  private textureCanvas: OffscreenCanvas | null = null;
+  private textureCtx: OffscreenCanvasRenderingContext2D | null = null;
 
   getMesh(): THREE.Mesh | null {
     return this.mesh;
@@ -85,6 +88,11 @@ export class TerrainRenderer {
 
     this.mesh = new THREE.Mesh(this.geometry, material);
     scene.add(this.mesh);
+
+    // Re-apply persistent texture canvas if it exists
+    if (this.textureCanvas) {
+      this.updateTextureFromCanvas();
+    }
   }
 
   updateRegion(region: HeightmapRegion): void {
@@ -171,33 +179,159 @@ export class TerrainRenderer {
   }
 
   /**
-   * Apply a PNG image as the terrain's diffuse texture.
-   * The image should be in top-down orthographic projection (matching UV space).
+   * Composite a PNG image onto the terrain's persistent texture canvas,
+   * using a mask to control where new pixels appear.
+   * Accumulates across multiple AI edits — previous edits are preserved
+   * outside the current mask.
+   *
+   * On first call, the entire result image initializes the canvas (so
+   * non-edited areas show the terrain capture, not black).
+   * On subsequent calls, only the masked region is updated.
    */
-  applyTexture(pngBytes: Uint8Array): void {
-    if (!this.mesh) return;
+  compositeTexture(pngBytes: Uint8Array, maskBytes: Uint8Array): Promise<void> {
+    if (!this.mesh) return Promise.resolve();
 
-    const blob = new Blob([pngBytes], { type: "image/png" });
-    const url = URL.createObjectURL(blob);
+    return new Promise((resolve) => {
+      const resultBlob = new Blob([pngBytes], { type: "image/png" });
+      const maskBlob = new Blob([maskBytes], { type: "image/png" });
+      const resultUrl = URL.createObjectURL(resultBlob);
+      const maskUrl = URL.createObjectURL(maskBlob);
 
-    const loader = new THREE.TextureLoader();
-    loader.load(url, (tex) => {
-      URL.revokeObjectURL(url);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.wrapS = THREE.ClampToEdgeWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
+      const resultImg = new Image();
+      const maskImg = new Image();
+      let loaded = 0;
 
-      // Dispose old texture if any
-      this.texture?.dispose();
-      this.texture = tex;
+      const onBothLoaded = () => {
+        URL.revokeObjectURL(resultUrl);
+        URL.revokeObjectURL(maskUrl);
 
-      const mat = this.mesh!.material as THREE.MeshStandardMaterial;
-      mat.map = tex;
-      mat.color.set(0xffffff); // neutral tint so texture colors show accurately
-      mat.needsUpdate = true;
+        const size = 512;
+        const isFirstEdit = !this.textureCanvas;
+
+        // Initialize persistent canvas on first use
+        if (!this.textureCanvas) {
+          this.textureCanvas = new OffscreenCanvas(size, size);
+          this.textureCtx = this.textureCanvas.getContext("2d")!;
+        }
+        const ctx = this.textureCtx!;
+
+        if (isFirstEdit) {
+          // First AI edit: paint the ENTIRE result image as the base.
+          // The result already contains the terrain capture outside the mask
+          // and the AI content inside, with feathered blending.
+          ctx.drawImage(resultImg, 0, 0, size, size);
+        } else {
+          // Subsequent edits: composite using feathered mask
+
+          // Get result and mask pixel data via temp canvas
+          const tmpCanvas = new OffscreenCanvas(size, size);
+          const tmpCtx = tmpCanvas.getContext("2d")!;
+          tmpCtx.drawImage(resultImg, 0, 0, size, size);
+          const resultData = tmpCtx.getImageData(0, 0, size, size);
+
+          tmpCtx.clearRect(0, 0, size, size);
+          tmpCtx.drawImage(maskImg, 0, 0, size, size);
+          const rawMask = tmpCtx.getImageData(0, 0, size, size);
+
+          // Feather the mask with a box blur to smooth transitions
+          const feathered = this.featherMask(rawMask.data, size, size, 16);
+
+          // Get existing canvas pixels
+          const existingData = ctx.getImageData(0, 0, size, size);
+          const existing = existingData.data;
+          const result = resultData.data;
+
+          for (let i = 0; i < size * size; i++) {
+            const pi = i * 4;
+            const alpha = feathered[i];
+
+            if (alpha > 0.01) {
+              existing[pi] = Math.round(existing[pi] * (1 - alpha) + result[pi] * alpha);
+              existing[pi + 1] = Math.round(existing[pi + 1] * (1 - alpha) + result[pi + 1] * alpha);
+              existing[pi + 2] = Math.round(existing[pi + 2] * (1 - alpha) + result[pi + 2] * alpha);
+              existing[pi + 3] = 255;
+            }
+          }
+          ctx.putImageData(existingData, 0, 0);
+        }
+
+        this.updateTextureFromCanvas();
+        resolve();
+      };
+
+      resultImg.onload = () => { if (++loaded === 2) onBothLoaded(); };
+      maskImg.onload = () => { if (++loaded === 2) onBothLoaded(); };
+      resultImg.src = resultUrl;
+      maskImg.src = maskUrl;
     });
+  }
+
+  /**
+   * Box-blur a mask (from RGBA pixel data, using R channel) to feather edges.
+   * Returns a float array [0..1] per pixel.
+   */
+  private featherMask(maskRGBA: Uint8ClampedArray, w: number, h: number, radius: number): Float32Array {
+    // Extract R channel as float
+    const src = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      src[i] = maskRGBA[i * 4] / 255;
+    }
+
+    // Two-pass separable box blur
+    const tmp = new Float32Array(w * h);
+    const out = new Float32Array(w * h);
+
+    // Horizontal pass
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0, count = 0;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx;
+          if (nx >= 0 && nx < w) {
+            sum += src[y * w + nx];
+            count++;
+          }
+        }
+        tmp[y * w + x] = sum / count;
+      }
+    }
+
+    // Vertical pass
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let sum = 0, count = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+          const ny = y + dy;
+          if (ny >= 0 && ny < h) {
+            sum += tmp[ny * w + x];
+            count++;
+          }
+        }
+        out[y * w + x] = sum / count;
+      }
+    }
+
+    return out;
+  }
+
+  /** Update the Three.js texture from the persistent canvas. */
+  private updateTextureFromCanvas(): void {
+    if (!this.mesh || !this.textureCanvas) return;
+
+    this.texture?.dispose();
+
+    this.texture = new THREE.CanvasTexture(this.textureCanvas);
+    this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.texture.minFilter = THREE.LinearMipmapLinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
+    this.texture.wrapS = THREE.ClampToEdgeWrapping;
+    this.texture.wrapT = THREE.ClampToEdgeWrapping;
+    this.texture.needsUpdate = true;
+
+    const mat = this.mesh.material as THREE.MeshStandardMaterial;
+    mat.map = this.texture;
+    mat.color.set(0xffffff);
+    mat.needsUpdate = true;
   }
 
   /**
@@ -207,6 +341,8 @@ export class TerrainRenderer {
     if (!this.mesh) return;
     this.texture?.dispose();
     this.texture = null;
+    this.textureCanvas = null;
+    this.textureCtx = null;
 
     const mat = this.mesh.material as THREE.MeshStandardMaterial;
     mat.map = null;
@@ -229,6 +365,7 @@ export class TerrainRenderer {
       this.positionAttr = null;
       this.normalAttr = null;
       this.texture = null;
+      // Note: textureCanvas is NOT cleared here — it persists across rebuilds
     }
   }
 }

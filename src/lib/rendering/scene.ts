@@ -73,8 +73,10 @@ export class SceneManager {
   /**
    * Render the scene from a top-down orthographic camera and return PNG bytes.
    * The ortho camera spans [-0.5, 0.5] in x/z so each pixel maps 1:1 to a heightmap cell.
+   * If a terrainMesh is provided, temporarily swaps its material for a height-based
+   * color ramp so the AI gets a visually rich input instead of flat green.
    */
-  captureOrthographic(size: number = 512): Uint8Array {
+  captureOrthographic(size: number = 512, terrainMesh?: THREE.Mesh): Uint8Array {
     const orthoCamera = new THREE.OrthographicCamera(
       -0.5, 0.5,   // left, right
       0.5, -0.5,    // top, bottom (flipped so +z = down in image)
@@ -95,6 +97,59 @@ export class SceneManager {
     const origBackground = this.scene.background;
     this.scene.background = new THREE.Color(0x404040);
 
+    // Swap terrain material for capture:
+    // - If terrain already has a texture (from previous AI edits), keep it as-is
+    // - If no texture, use height-based color ramp for richer AI input
+    let origMaterial: THREE.Material | undefined;
+    const hasExistingTexture = terrainMesh &&
+      (terrainMesh.material as THREE.MeshStandardMaterial).map !== null;
+
+    const heightMaterial = new THREE.ShaderMaterial({
+      vertexShader: `
+        varying float vHeight;
+        void main() {
+          vHeight = position.y;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying float vHeight;
+        void main() {
+          // Normalize height (0.3 = heightScale used by TerrainRenderer)
+          float h = clamp(vHeight / 0.3, 0.0, 1.0);
+
+          vec3 water    = vec3(0.15, 0.25, 0.45);
+          vec3 sand     = vec3(0.76, 0.70, 0.50);
+          vec3 lowland  = vec3(0.30, 0.52, 0.22);
+          vec3 highland = vec3(0.45, 0.36, 0.20);
+          vec3 rock     = vec3(0.50, 0.48, 0.45);
+          vec3 snow     = vec3(0.92, 0.93, 0.96);
+
+          vec3 color;
+          if (h < 0.05) {
+            color = mix(water, sand, h / 0.05);
+          } else if (h < 0.2) {
+            color = mix(sand, lowland, (h - 0.05) / 0.15);
+          } else if (h < 0.5) {
+            color = mix(lowland, highland, (h - 0.2) / 0.3);
+          } else if (h < 0.75) {
+            color = mix(highland, rock, (h - 0.5) / 0.25);
+          } else {
+            color = mix(rock, snow, (h - 0.75) / 0.25);
+          }
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `,
+      side: THREE.DoubleSide,
+    });
+
+    if (terrainMesh && !hasExistingTexture) {
+      // No texture yet — use height color ramp for richer AI input
+      origMaterial = terrainMesh.material as THREE.Material;
+      terrainMesh.material = heightMaterial;
+    }
+
     const renderTarget = new THREE.WebGLRenderTarget(size, size, {
       format: THREE.RGBAFormat,
       type: THREE.UnsignedByteType,
@@ -105,12 +160,17 @@ export class SceneManager {
     this.renderer.render(this.scene, orthoCamera);
     this.renderer.setRenderTarget(null);
 
-    // Clean up temporary lights and restore background
+    // Clean up temporary lights, material, and restore background
     this.scene.remove(captureLight);
     this.scene.remove(captureFill);
     captureLight.dispose();
     captureFill.dispose();
     this.scene.background = origBackground;
+
+    if (terrainMesh && origMaterial && !hasExistingTexture) {
+      terrainMesh.material = origMaterial;
+    }
+    heightMaterial.dispose();
 
     // Read pixels
     const pixels = new Uint8Array(size * size * 4);

@@ -139,7 +139,7 @@
   async function handleInpaint(mask: Uint8Array, prompt: string) {
     aiMode = "running";
     aiRunning = true;
-    aiStatusText = "Running inpainting (~20-40s)...";
+    aiStatusText = "Generating with SDXL (~60s)...";
     aiError = "";
     currentMask = mask;
 
@@ -166,8 +166,8 @@
     try {
       const hm = await runDepthEstimation(inpaintResult, currentMask);
       viewer.rebuildFromFull(hm);
-      // Project the AI image as a texture onto the terrain
-      viewer.applyTexture(inpaintResult);
+      // Composite the AI image onto the persistent terrain texture using the mask
+      await viewer.compositeTexture(inpaintResult, currentMask);
       handleCloseAI();
     } catch (e: any) {
       aiError = e?.message || String(e);
