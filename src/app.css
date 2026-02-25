@@ -90,7 +90,24 @@ html, body, #app {
 
 .control-row input[type="range"] {
   flex: 1;
-  accent-color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border: none;
+  border-radius: 2px;
+  outline: none;
+  padding: 0;
+}
+
+.control-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
 }
 
 .control-row .value {
@@ -114,7 +131,7 @@ html, body, #app {
 button {
   width: 100%;
   padding: 8px 12px;
-  background: var(--accent);
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
   color: #fff;
   border: none;
   border-radius: 4px;
@@ -125,7 +142,7 @@ button {
 }
 
 button:hover {
-  background: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent-hover) 60%, transparent);
 }
 
 button:disabled {

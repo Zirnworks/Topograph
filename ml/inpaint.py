@@ -86,9 +86,9 @@ def main():
         if args.seed >= 0:
             generator = torch.Generator(device="cpu").manual_seed(args.seed)
 
-        # Build prompt: user's prompt is primary, add gentle top-down hint
-        prompt = f"{args.prompt}, top-down view"
-        negative = args.negative or "side view, horizon, perspective, cartoon, drawing, text, watermark"
+        # Build prompt: flat top-down texture map — no 3D lighting or perspective
+        prompt = f"{args.prompt}, flat top-down orthographic satellite view, terrain texture map, no shadows, no lighting, no depth, uniform flat illumination"
+        negative = args.negative or "3d render, lighting, shadows, highlights, shading, depth, perspective, side view, horizon, volumetric, dramatic lighting, sun, cartoon, drawing, text, watermark"
         print(f"Prompt: {prompt}", file=sys.stderr)
         print(f"Negative: {negative}", file=sys.stderr)
 

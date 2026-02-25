@@ -213,7 +213,24 @@
 
   .mask-toolbar input[type="range"] {
     width: 80px;
-    accent-color: var(--accent);
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: var(--border);
+    border: none;
+    border-radius: 2px;
+    outline: none;
+    padding: 0;
+  }
+
+  .mask-toolbar input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
   }
 
   .mask-toolbar .value {
