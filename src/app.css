@@ -35,10 +35,12 @@ html, body, #app {
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
+  max-width: var(--sidebar-width);
   height: 100%;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -56,6 +58,7 @@ html, body, #app {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
+  overflow: hidden;
 }
 
 .section-title {
@@ -83,13 +86,19 @@ html, body, #app {
 }
 
 .control-row label {
+  width: 70px;
   min-width: 70px;
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .control-row input[type="range"] {
   flex: 1;
+  min-width: 0;
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
@@ -111,11 +120,14 @@ html, body, #app {
 }
 
 .control-row .value {
+  width: 36px;
   min-width: 36px;
+  flex-shrink: 0;
   text-align: right;
   font-size: 11px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .control-row select {

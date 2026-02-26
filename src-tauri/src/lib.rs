@@ -9,7 +9,7 @@ mod sculpt;
 mod state;
 
 use tauri::menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -61,14 +61,12 @@ pub fn run() {
                 .items(&[&app_menu, &file_menu, &edit_menu])
                 .build()?;
 
-            // Set menu on the main window directly
-            if let Some(window) = app.get_webview_window("main") {
-                window.set_menu(menu)?;
-                window.on_menu_event(move |window, event| {
-                    let id = event.id().0.as_str();
-                    let _ = window.emit("menu-action", id);
-                });
-            }
+            // Set menu on the app (required for macOS menu bar)
+            app.set_menu(menu)?;
+            app.on_menu_event(move |app_handle, event| {
+                let id = event.id().0.as_str();
+                let _ = app_handle.emit("menu-action", id);
+            });
 
             Ok(())
         })

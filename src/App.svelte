@@ -1,10 +1,5 @@
 <div class="app-layout">
   <Sidebar>
-    <FileControls
-      onSave={handleSave}
-      onLoad={handleLoad}
-      onExport={handleExport}
-    />
     <BrushControls
       bind:brushOp
       bind:brushRadius
@@ -24,6 +19,13 @@
       {aiError}
       onOpenEditor={handleOpenAIEditor}
     />
+    <div style="margin-top: auto;">
+      <FileControls
+        onSave={handleSave}
+        onLoad={handleLoad}
+        onExport={handleExport}
+      />
+    </div>
   </Sidebar>
   <div class="viewer-container">
     <TerrainViewer

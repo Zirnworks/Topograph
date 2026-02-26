@@ -34,7 +34,7 @@
   </div>
   <div class="control-row">
     <label for="amplitude">Amplitude</label>
-    <input id="amplitude" type="range" min="0.1" max="2.0" step="0.1" bind:value={amplitude} />
+    <input id="amplitude" type="range" min="0.0" max="1.5" step="0.1" bind:value={amplitude} />
     <span class="value">{amplitude.toFixed(1)}</span>
   </div>
   <button onclick={onGenerate} disabled={generating}>
@@ -56,7 +56,7 @@
   let frequency = $state(3.0);
   let lacunarity = $state(2.0);
   let persistence = $state(0.5);
-  let amplitude = $state(1.0);
+  let amplitude = $state(0.5);
   let generating = $state(false);
 
   export function getSettings() {
