@@ -6,6 +6,7 @@ import type {
   NoiseParams,
   ThermalParams,
   HydraulicParams,
+  LoadProjectResponse,
 } from "./types";
 
 const IPC_VERSION = 1;
@@ -103,4 +104,29 @@ export async function runInpainting(
     prompt,
   });
   return new Uint8Array(result);
+}
+
+export async function saveProject(
+  texturePng: Uint8Array | null,
+  settingsJson: string,
+  path: string,
+): Promise<void> {
+  await invoke("save_project", {
+    path,
+    texturePng: texturePng ? Array.from(texturePng) : null,
+    settingsJson,
+  });
+}
+
+export async function loadProject(
+  path: string,
+): Promise<LoadProjectResponse> {
+  return await invoke("load_project", { path });
+}
+
+export async function exportHeightmap(
+  path: string,
+  format: string,
+): Promise<void> {
+  await invoke("export_heightmap", { path, format });
 }

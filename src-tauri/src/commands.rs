@@ -8,6 +8,7 @@ use crate::erosion::hydraulic::HydraulicParams;
 use crate::erosion::thermal::ThermalParams;
 use crate::ipc;
 use crate::noise_gen::{self, NoiseParams};
+use crate::project;
 use crate::sculpt::{self, BrushStroke};
 use crate::state::AppState;
 
@@ -166,4 +167,52 @@ pub fn run_inpainting(
     app_handle: AppHandle,
 ) -> Result<Vec<u8>, String> {
     ai::run_inpainting(&app_handle, &image_data, &mask_data, &prompt)
+}
+
+#[tauri::command]
+pub fn save_project(
+    path: String,
+    texture_png: Option<Vec<u8>>,
+    settings_json: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let hm = state.heightmap.lock().unwrap();
+    project::save_project(
+        std::path::Path::new(&path),
+        &hm,
+        texture_png.as_deref(),
+        &settings_json,
+    )
+}
+
+#[tauri::command]
+pub fn load_project(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<project::LoadProjectResponse, String> {
+    let (new_hm, texture_png, settings_json) =
+        project::load_project(std::path::Path::new(&path))?;
+
+    let mut hm = state.heightmap.lock().unwrap();
+    *hm = new_hm;
+
+    Ok(project::LoadProjectResponse {
+        texture_png,
+        settings_json,
+    })
+}
+
+#[tauri::command]
+pub fn export_heightmap(
+    path: String,
+    format: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let hm = state.heightmap.lock().unwrap();
+    let p = std::path::Path::new(&path);
+    match format.as_str() {
+        "png16" => project::export_heightmap_png16(p, &hm),
+        "raw_f32" => project::export_heightmap_raw(p, &hm),
+        _ => Err(format!("Unknown export format: {format}")),
+    }
 }

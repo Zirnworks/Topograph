@@ -354,6 +354,35 @@ export class TerrainRenderer {
     return this.texture !== null;
   }
 
+  async getTexturePNG(): Promise<Uint8Array | null> {
+    if (!this.textureCanvas) return null;
+    const blob = await this.textureCanvas.convertToBlob({ type: "image/png" });
+    const buffer = await blob.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+
+  restoreTexture(pngBytes: Uint8Array): Promise<void> {
+    if (!this.mesh) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      const blob = new Blob([pngBytes], { type: "image/png" });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const size = 512;
+        this.textureCanvas = new OffscreenCanvas(size, size);
+        this.textureCtx = this.textureCanvas.getContext("2d")!;
+        this.textureCtx.drawImage(img, 0, 0, size, size);
+        this.updateTextureFromCanvas();
+        resolve();
+      };
+
+      img.src = url;
+    });
+  }
+
   dispose(scene: THREE.Scene): void {
     if (this.mesh) {
       scene.remove(this.mesh);

@@ -66,6 +66,14 @@
     terrainRenderer.clearTexture();
   }
 
+  export async function getTexturePNG(): Promise<Uint8Array | null> {
+    return terrainRenderer.getTexturePNG();
+  }
+
+  export async function restoreTexture(pngBytes: Uint8Array): Promise<void> {
+    await terrainRenderer.restoreTexture(pngBytes);
+  }
+
   function setupBrushCursor() {
     if (!sceneManager) return;
     if (brushCursor) {

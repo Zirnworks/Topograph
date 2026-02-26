@@ -79,6 +79,20 @@
   let depositionRate = $state(0.3);
   let inertia = $state(0.3);
 
+  export function getSettings() {
+    return { thermalIterations, thermalTalus, thermalTransfer, numDroplets, erosionRate, depositionRate, inertia };
+  }
+
+  export function setSettings(s: { thermalIterations: number; thermalTalus: number; thermalTransfer: number; numDroplets: number; erosionRate: number; depositionRate: number; inertia: number }) {
+    thermalIterations = s.thermalIterations;
+    thermalTalus = s.thermalTalus;
+    thermalTransfer = s.thermalTransfer;
+    numDroplets = s.numDroplets;
+    erosionRate = s.erosionRate;
+    depositionRate = s.depositionRate;
+    inertia = s.inertia;
+  }
+
   function onThermal() {
     onThermalErode({
       iterations: thermalIterations,

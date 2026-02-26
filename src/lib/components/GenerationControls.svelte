@@ -59,6 +59,20 @@
   let amplitude = $state(1.0);
   let generating = $state(false);
 
+  export function getSettings() {
+    return { noiseType, seed, octaves, frequency, lacunarity, persistence, amplitude };
+  }
+
+  export function setSettings(s: { noiseType: "perlin" | "simplex"; seed: number; octaves: number; frequency: number; lacunarity: number; persistence: number; amplitude: number }) {
+    noiseType = s.noiseType;
+    seed = s.seed;
+    octaves = s.octaves;
+    frequency = s.frequency;
+    lacunarity = s.lacunarity;
+    persistence = s.persistence;
+    amplitude = s.amplitude;
+  }
+
   function getParams(): NoiseParams {
     return {
       noiseType,
