@@ -10,7 +10,7 @@ export class SceneManager {
 
   constructor(container: HTMLElement) {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1a2e);
+    this.scene.background = new THREE.Color(0x0e0e1a);
 
     const rect = container.getBoundingClientRect();
     this.camera = new THREE.PerspectiveCamera(
