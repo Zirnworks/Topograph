@@ -48,6 +48,30 @@
         onDiscardResult={handleCloseAI}
       />
     {/if}
+    {#if aiMode === "adjusting"}
+      <div class="adjust-overlay">
+        <div class="adjust-panel">
+          <div class="adjust-title">Adjust Displacement Strength</div>
+          <div class="adjust-slider-row">
+            <span class="adjust-label">0%</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              bind:value={adjustStrength}
+              oninput={onStrengthChange}
+              class="adjust-slider"
+            />
+            <span class="adjust-label">{Math.round(adjustStrength * 100)}%</span>
+          </div>
+          <div class="adjust-actions">
+            <button class="adjust-btn cancel" onclick={cancelAdjustment}>Cancel</button>
+            <button class="adjust-btn confirm" onclick={confirmAdjustment}>Confirm</button>
+          </div>
+        </div>
+      </div>
+    {/if}
     {#if aiMode === "running"}
       <div class="ai-loading-overlay">
         <div class="ai-loading-content">
@@ -80,11 +104,13 @@
     abortErosion,
     runDepthEstimation,
     runInpainting,
+    applyHeightmapImage,
+    setHeightmap,
     saveProject,
     loadProject,
     exportHeightmap,
   } from "./lib/tauri";
-  import type { BrushOp, NoiseParams, ThermalParams, HydraulicParams, ProjectSettings } from "./lib/types";
+  import type { AISculptMode, BrushOp, NoiseParams, ThermalParams, HydraulicParams, ProjectSettings } from "./lib/types";
 
   let viewer: ReturnType<typeof TerrainViewer>;
   let generationControls: ReturnType<typeof GenerationControls>;
@@ -96,13 +122,21 @@
   let erosionProgress = $state(0);
 
   // AI state
-  let aiMode: "idle" | "painting" | "running" | "preview" = $state("idle");
+  let aiMode: "idle" | "painting" | "running" | "preview" | "adjusting" = $state("idle");
   let aiRunning = $state(false);
   let aiStatusText = $state("");
   let aiError = $state("");
   let capturedTerrain: Uint8Array | null = $state(null);
   let inpaintResult: Uint8Array | null = $state(null);
   let currentMask: Uint8Array | null = $state(null);
+  let currentAIMode: AISculptMode = $state("heightmap");
+
+  // Adjustment mode state
+  let adjustStrength = $state(0.5);
+  let originalHeightmap: Float32Array | null = null;
+  let modifiedHeightmap: Float32Array | null = null;
+  let hmWidth = 0;
+  let hmHeight = 0;
 
   let unlisten: (() => void) | null = null;
 
@@ -252,20 +286,23 @@
     aiMode = "painting";
   }
 
-  async function handleInpaint(mask: Uint8Array, prompt: string) {
+  async function handleInpaint(mask: Uint8Array, prompt: string, mode: AISculptMode) {
     aiMode = "running";
     aiRunning = true;
-    aiStatusText = "Generating with SDXL (~60s)...";
+    aiStatusText = mode === "heightmap"
+      ? "Generating heightmap with SDXL (~60s)..."
+      : "Generating with SDXL (~60s)...";
     aiError = "";
     currentMask = mask;
+    currentAIMode = mode;
 
     try {
-      const result = await runInpainting(capturedTerrain!, mask, prompt);
+      const result = await runInpainting(capturedTerrain!, mask, prompt, mode);
       inpaintResult = result;
       aiMode = "preview";
     } catch (e: any) {
       aiError = e?.message || String(e);
-      aiMode = "painting"; // Go back to editor on error
+      aiMode = "painting";
     } finally {
       aiRunning = false;
       aiStatusText = "";
@@ -276,22 +313,78 @@
     if (!inpaintResult || !currentMask) return;
     aiMode = "running";
     aiRunning = true;
-    aiStatusText = "Applying depth estimation...";
     aiError = "";
 
     try {
-      const hm = await runDepthEstimation(inpaintResult, currentMask);
-      viewer.rebuildFromFull(hm);
-      // Composite the AI image onto the persistent terrain texture using the mask
-      await viewer.compositeTexture(inpaintResult, currentMask);
-      handleCloseAI();
+      // Snapshot original heightmap before applying
+      const origHm = await getHeightmap();
+      originalHeightmap = new Float32Array(origHm.data);
+      hmWidth = origHm.width;
+      hmHeight = origHm.height;
+
+      if (currentAIMode === "heightmap") {
+        aiStatusText = "Applying heightmap...";
+        const hm = await applyHeightmapImage(inpaintResult, currentMask);
+        modifiedHeightmap = new Float32Array(hm.data);
+        // Enter adjustment mode with live slider
+        adjustStrength = 0.5;
+        applyBlend(0.5);
+        aiMode = "adjusting";
+      } else {
+        aiStatusText = "Applying depth estimation...";
+        const hm = await runDepthEstimation(inpaintResult, currentMask);
+        modifiedHeightmap = new Float32Array(hm.data);
+        // Enter adjustment mode
+        adjustStrength = 0.5;
+        applyBlend(0.5);
+        aiMode = "adjusting";
+      }
     } catch (e: any) {
       aiError = e?.message || String(e);
-      aiMode = "preview"; // Go back to preview on error
+      aiMode = "preview";
     } finally {
       aiRunning = false;
       aiStatusText = "";
     }
+  }
+
+  function applyBlend(strength: number) {
+    if (!originalHeightmap || !modifiedHeightmap) return;
+    const blended = new Float32Array(originalHeightmap.length);
+    for (let i = 0; i < blended.length; i++) {
+      blended[i] = originalHeightmap[i] * (1 - strength) + modifiedHeightmap[i] * strength;
+    }
+    viewer.rebuildFromFull({ width: hmWidth, height: hmHeight, data: blended });
+  }
+
+  function onStrengthChange() {
+    applyBlend(adjustStrength);
+  }
+
+  async function confirmAdjustment() {
+    if (!originalHeightmap || !modifiedHeightmap) return;
+    // Compute final blend and commit to Rust
+    const final_ = new Float32Array(originalHeightmap.length);
+    for (let i = 0; i < final_.length; i++) {
+      final_[i] = originalHeightmap[i] * (1 - adjustStrength) + modifiedHeightmap[i] * adjustStrength;
+    }
+    await setHeightmap(final_);
+
+    // If texture mode, also composite the texture
+    if (currentAIMode === "texture" && inpaintResult && currentMask) {
+      await viewer.compositeTexture(inpaintResult, currentMask);
+    }
+
+    handleCloseAI();
+  }
+
+  async function cancelAdjustment() {
+    if (originalHeightmap) {
+      // Restore original heightmap
+      await setHeightmap(originalHeightmap);
+      viewer.rebuildFromFull({ width: hmWidth, height: hmHeight, data: originalHeightmap });
+    }
+    handleCloseAI();
   }
 
   function handleCloseAI() {
@@ -299,7 +392,10 @@
     capturedTerrain = null;
     inpaintResult = null;
     currentMask = null;
+    currentAIMode = "heightmap";
     aiError = "";
+    originalHeightmap = null;
+    modifiedHeightmap = null;
   }
 </script>
 
@@ -337,5 +433,96 @@
 
   @keyframes spin {
     to { transform: rotate(360deg); }
+  }
+
+  .adjust-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+    z-index: 100;
+    pointer-events: none;
+  }
+
+  .adjust-panel {
+    background: rgba(22, 33, 62, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 24px;
+    min-width: 400px;
+    pointer-events: auto;
+  }
+
+  .adjust-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+
+  .adjust-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .adjust-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    outline: none;
+  }
+
+  .adjust-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+
+  .adjust-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 32px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .adjust-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .adjust-btn {
+    flex: 1;
+    padding: 8px;
+    font-size: 13px;
+    margin-top: 0;
+    border-radius: 4px;
+  }
+
+  .adjust-btn.cancel {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+  }
+
+  .adjust-btn.cancel:hover {
+    background: var(--border);
+  }
+
+  .adjust-btn.confirm {
+    background: var(--accent);
   }
 </style>

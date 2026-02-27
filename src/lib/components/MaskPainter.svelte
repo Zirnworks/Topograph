@@ -28,11 +28,19 @@
     ></canvas>
   </div>
   <div class="mask-footer">
+    <div class="mode-toggle">
+      <button class="mode-btn" class:active={sculptMode === "texture"} onclick={() => sculptMode = "texture"}>
+        Texture + Depth
+      </button>
+      <button class="mode-btn" class:active={sculptMode === "heightmap"} onclick={() => sculptMode = "heightmap"}>
+        Direct Heightmap
+      </button>
+    </div>
     <div class="prompt-row">
       <input
         type="text"
         class="prompt-input"
-        placeholder="Describe what to generate..."
+        placeholder={sculptMode === "heightmap" ? "Describe terrain shape (e.g. mountain range, canyon)..." : "Describe what to generate..."}
         bind:value={prompt}
         onkeydown={(e) => { if (e.key === 'Enter' && prompt.trim()) onGenerate(); }}
       />
@@ -48,6 +56,7 @@
 
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { AISculptMode } from "../types";
 
   let {
     terrainImage,
@@ -55,7 +64,7 @@
     onClose,
   }: {
     terrainImage: Uint8Array;
-    onSubmit: (mask: Uint8Array, prompt: string) => void;
+    onSubmit: (mask: Uint8Array, prompt: string, mode: AISculptMode) => void;
     onClose: () => void;
   } = $props();
 
@@ -64,6 +73,7 @@
   let maskCanvas: HTMLCanvasElement;
   let maskBrushSize = $state(30);
   let prompt = $state("");
+  let sculptMode: AISculptMode = $state("heightmap");
   let painting = false;
 
   onMount(() => {
@@ -167,7 +177,7 @@
   function onGenerate() {
     if (!prompt.trim()) return;
     const maskPng = getMaskPng();
-    onSubmit(maskPng, prompt);
+    onSubmit(maskPng, prompt, sculptMode);
   }
 
   function onCancel() {
@@ -276,6 +286,33 @@
   .mask-footer {
     width: 512px;
     margin-top: 8px;
+  }
+
+  .mode-toggle {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .mode-btn {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 11px;
+    margin-top: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    transition: all 0.15s;
+  }
+
+  .mode-btn:hover {
+    background: var(--border);
+  }
+
+  .mode-btn.active {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+    border-color: var(--accent);
+    color: var(--text-primary);
   }
 
   .prompt-row {

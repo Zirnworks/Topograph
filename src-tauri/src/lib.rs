@@ -79,6 +79,8 @@ pub fn run() {
             commands::abort_erosion,
             commands::run_depth_estimation,
             commands::run_inpainting,
+            commands::apply_heightmap_image,
+            commands::set_heightmap,
             commands::save_project,
             commands::load_project,
             commands::export_heightmap,

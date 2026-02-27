@@ -52,6 +52,7 @@ export interface HydraulicParams {
   gravity: number;
 }
 
+export type AISculptMode = "texture" | "heightmap";
 export type AIStatus = "idle" | "running" | "error";
 
 export interface ProjectSettings {

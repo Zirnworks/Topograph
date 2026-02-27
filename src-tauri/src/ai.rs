@@ -115,6 +115,7 @@ pub fn run_inpainting(
     image_data: &[u8],
     mask_data: &[u8],
     prompt: &str,
+    mode: &str,
 ) -> Result<Vec<u8>, String> {
     let root = project_root(app_handle);
     let python = python_bin(&root);
@@ -146,6 +147,8 @@ pub fn run_inpainting(
         .arg(prompt)
         .arg("--output")
         .arg(&output_path)
+        .arg("--mode")
+        .arg(mode)
         .output()
         .map_err(|e| format!("Failed to spawn Python: {e}"))?;
 

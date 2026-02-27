@@ -27,6 +27,8 @@ def main():
     parser.add_argument("--negative", type=str, default="", help="Negative prompt")
     parser.add_argument("--feather", type=int, default=12, help="Mask feather radius in pixels")
     parser.add_argument("--seed", type=int, default=-1, help="Random seed (-1 = random)")
+    parser.add_argument("--mode", type=str, default="texture", choices=["texture", "heightmap"],
+                        help="Generation mode: texture (color image) or heightmap (grayscale heights)")
     args = parser.parse_args()
 
     try:
@@ -86,9 +88,13 @@ def main():
         if args.seed >= 0:
             generator = torch.Generator(device="cpu").manual_seed(args.seed)
 
-        # Build prompt: flat top-down texture map — no 3D lighting or perspective
-        prompt = f"{args.prompt}, flat top-down orthographic satellite view, terrain texture map, no shadows, no lighting, no depth, uniform flat illumination"
-        negative = args.negative or "3d render, lighting, shadows, highlights, shading, depth, perspective, side view, horizon, volumetric, dramatic lighting, sun, cartoon, drawing, text, watermark"
+        # Build prompt based on mode
+        if args.mode == "heightmap":
+            prompt = f"{args.prompt}, grayscale heightmap, top-down view, white is high elevation, black is low elevation, smooth gradients, no text, no labels"
+            negative = args.negative or "color, rgb, texture, photo, satellite, 3d render, text, labels, contour lines, cartoon, drawing"
+        else:
+            prompt = f"{args.prompt}, flat top-down orthographic satellite view, terrain texture map, no shadows, no lighting, no depth, uniform flat illumination"
+            negative = args.negative or "3d render, lighting, shadows, highlights, shading, depth, perspective, side view, horizon, volumetric, dramatic lighting, sun, cartoon, drawing, text, watermark"
         print(f"Prompt: {prompt}", file=sys.stderr)
         print(f"Negative: {negative}", file=sys.stderr)
 
@@ -107,6 +113,12 @@ def main():
         generated = generated.resize((512, 512), Image.LANCZOS)
         generated.save(os.path.join(debug_dir, "generated_raw.png"))
 
+        # In heightmap mode, convert to grayscale
+        if args.mode == "heightmap":
+            generated = generated.convert("L")
+            generated.save(os.path.join(debug_dir, "generated_grayscale.png"))
+            image = image.convert("L")
+
         # Composite: blend generated image into masked area with feathered edges
         gen_arr = np.array(generated).astype(np.float32)
         orig_arr = np.array(image).astype(np.float32)
@@ -115,7 +127,12 @@ def main():
         mask_feathered = mask.filter(ImageFilter.GaussianBlur(radius=args.feather))
         alpha = np.array(mask_feathered).astype(np.float32) / 255.0
 
-        composite = orig_arr * (1 - alpha[:, :, None]) + gen_arr * alpha[:, :, None]
+        if gen_arr.ndim == 2:
+            # Grayscale (heightmap mode)
+            composite = orig_arr * (1 - alpha) + gen_arr * alpha
+        else:
+            # RGB (texture mode)
+            composite = orig_arr * (1 - alpha[:, :, None]) + gen_arr * alpha[:, :, None]
         result = Image.fromarray(composite.clip(0, 255).astype(np.uint8))
 
         result.save(args.output)

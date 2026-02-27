@@ -164,9 +164,97 @@ pub fn run_inpainting(
     image_data: Vec<u8>,
     mask_data: Vec<u8>,
     prompt: String,
+    mode: String,
     app_handle: AppHandle,
 ) -> Result<Vec<u8>, String> {
-    ai::run_inpainting(&app_handle, &image_data, &mask_data, &prompt)
+    ai::run_inpainting(&app_handle, &image_data, &mask_data, &prompt, &mode)
+}
+
+#[tauri::command]
+pub fn apply_heightmap_image(
+    image_data: Vec<u8>,
+    mask_data: Option<Vec<u8>>,
+    state: State<'_, AppState>,
+) -> Result<Response, String> {
+    // Decode the grayscale PNG to get pixel values
+    let img = image::load_from_memory(&image_data)
+        .map_err(|e| format!("Failed to decode heightmap image: {e}"))?;
+    let gray = img.to_luma8();
+
+    let mut hm = state.heightmap.lock().unwrap();
+    let width = hm.width;
+    let height = hm.height;
+
+    // Resize if needed
+    let resized = if gray.width() != width || gray.height() != height {
+        image::imageops::resize(&gray, width, height, image::imageops::FilterType::Lanczos3)
+    } else {
+        gray
+    };
+
+    // Convert pixels to normalized heights [0.0, 1.0]
+    let depth_values: Vec<f32> = resized.pixels().map(|p| p.0[0] as f32 / 255.0).collect();
+
+    match mask_data {
+        Some(mask_png) => {
+            let mask = ai::decode_mask_png(&mask_png, width, height)?;
+
+            // Find height range in masked region of existing terrain
+            let mut masked_min = f32::MAX;
+            let mut masked_max = f32::MIN;
+            for i in 0..hm.data.len() {
+                if mask[i] > 0.1 {
+                    masked_min = masked_min.min(hm.data[i]);
+                    masked_max = masked_max.max(hm.data[i]);
+                }
+            }
+            if masked_min > masked_max {
+                masked_min = 0.0;
+                masked_max = 1.0;
+            }
+            let range = (masked_max - masked_min).max(0.05);
+            let target_min = (masked_min - range * 0.3).max(0.0);
+            let target_max = (masked_max + range * 0.3).min(1.0);
+
+            // Find depth range in masked area
+            let mut depth_min = f32::MAX;
+            let mut depth_max = f32::MIN;
+            for i in 0..depth_values.len() {
+                if mask[i] > 0.1 {
+                    depth_min = depth_min.min(depth_values[i]);
+                    depth_max = depth_max.max(depth_values[i]);
+                }
+            }
+            let depth_range = (depth_max - depth_min).max(1e-6);
+
+            // Blend with feathered mask
+            let feathered_mask = ai::feather_mask(&mask, width, height, 8);
+            for i in 0..hm.data.len() {
+                let w = feathered_mask[i];
+                if w > 0.001 {
+                    let normalized = (depth_values[i] - depth_min) / depth_range;
+                    let remapped = target_min + normalized * (target_max - target_min);
+                    hm.data[i] = hm.data[i] * (1.0 - w) + remapped * w;
+                }
+            }
+        }
+        None => {
+            hm.data.copy_from_slice(&depth_values);
+        }
+    }
+
+    Ok(Response::new(ipc::pack_full(&hm)))
+}
+
+#[tauri::command]
+pub fn set_heightmap(data: Vec<f32>, state: State<'_, AppState>) -> Result<(), String> {
+    let mut hm = state.heightmap.lock().unwrap();
+    let expected = (hm.width * hm.height) as usize;
+    if data.len() != expected {
+        return Err(format!("Data length mismatch: {} vs {}", data.len(), expected));
+    }
+    hm.data.copy_from_slice(&data);
+    Ok(())
 }
 
 #[tauri::command]

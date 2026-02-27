@@ -96,14 +96,31 @@ export async function runDepthEstimation(
 export async function runInpainting(
   imageData: Uint8Array,
   maskData: Uint8Array,
-  prompt: string
+  prompt: string,
+  mode: string = "texture"
 ): Promise<Uint8Array> {
   const result: number[] = await invoke("run_inpainting", {
     imageData: Array.from(imageData),
     maskData: Array.from(maskData),
     prompt,
+    mode,
   });
   return new Uint8Array(result);
+}
+
+export async function applyHeightmapImage(
+  imageData: Uint8Array,
+  maskData?: Uint8Array
+): Promise<HeightmapData> {
+  const buffer: ArrayBuffer = await invoke("apply_heightmap_image", {
+    imageData: Array.from(imageData),
+    maskData: maskData ? Array.from(maskData) : null,
+  });
+  return parseResponse(buffer) as HeightmapData;
+}
+
+export async function setHeightmap(data: Float32Array): Promise<void> {
+  await invoke("set_heightmap", { data: Array.from(data) });
 }
 
 export async function saveProject(
