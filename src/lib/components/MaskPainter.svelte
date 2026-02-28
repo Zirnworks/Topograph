@@ -29,18 +29,25 @@
   </div>
   <div class="mask-footer">
     <div class="mode-toggle">
-      <button class="mode-btn" class:active={sculptMode === "texture"} onclick={() => sculptMode = "texture"}>
-        Texture + Depth
-      </button>
       <button class="mode-btn" class:active={sculptMode === "heightmap"} onclick={() => sculptMode = "heightmap"}>
         Direct Heightmap
+      </button>
+      <button class="mode-btn" class:active={sculptMode === "texture_gen"} onclick={() => sculptMode = "texture_gen"}>
+        Generate Texture
+      </button>
+      <button class="mode-btn" class:active={sculptMode === "texture"} onclick={() => sculptMode = "texture"}>
+        Texture + Depth
       </button>
     </div>
     <div class="prompt-row">
       <input
         type="text"
         class="prompt-input"
-        placeholder={sculptMode === "heightmap" ? "Describe terrain shape (e.g. mountain range, canyon)..." : "Describe what to generate..."}
+        placeholder={sculptMode === "heightmap"
+          ? "Describe terrain shape (e.g. mountain range, canyon)..."
+          : sculptMode === "texture_gen"
+            ? "Describe terrain texture (e.g. lush forest, snowy peaks)..."
+            : "Describe what to generate..."}
         bind:value={prompt}
         onkeydown={(e) => { if (e.key === 'Enter' && prompt.trim()) onGenerate(); }}
       />

@@ -171,6 +171,23 @@ pub fn run_inpainting(
 }
 
 #[tauri::command]
+pub fn generate_controlnet_texture(
+    image_data: Vec<u8>,
+    mask_data: Vec<u8>,
+    prompt: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<u8>, String> {
+    let hm = state.heightmap.lock().unwrap();
+    let data = hm.data.clone();
+    let width = hm.width;
+    let height = hm.height;
+    drop(hm); // Release lock before spawning subprocess
+
+    ai::run_controlnet_texture(&app_handle, &image_data, &mask_data, &prompt, &data, width, height)
+}
+
+#[tauri::command]
 pub fn apply_heightmap_image(
     image_data: Vec<u8>,
     mask_data: Option<Vec<u8>>,

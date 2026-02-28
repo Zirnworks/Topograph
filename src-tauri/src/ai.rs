@@ -180,6 +180,131 @@ pub fn run_inpainting(
     Ok(result_bytes)
 }
 
+/// Convert a Float32 heightmap to a grayscale PNG byte vector.
+/// Normalizes to full 0-255 range for maximum ControlNet conditioning contrast.
+pub fn heightmap_to_grayscale_png(
+    data: &[f32],
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    use image::codecs::png::PngEncoder;
+    use image::{GrayImage, ImageEncoder};
+
+    // Find actual min/max to normalize to full 0-255 range
+    let mut min_val = f32::MAX;
+    let mut max_val = f32::MIN;
+    for &v in data.iter() {
+        if v < min_val { min_val = v; }
+        if v > max_val { max_val = v; }
+    }
+    let range = (max_val - min_val).max(1e-6);
+
+    let mut img = GrayImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let val = data[(y * width + x) as usize];
+            let normalized = ((val - min_val) / range).clamp(0.0, 1.0);
+            let pixel = (normalized * 255.0) as u8;
+            img.put_pixel(x, y, image::Luma([pixel]));
+        }
+    }
+
+    let mut png_bytes = Vec::new();
+    let encoder = PngEncoder::new(&mut png_bytes);
+    encoder
+        .write_image(img.as_raw(), width, height, image::ExtendedColorType::L8)
+        .map_err(|e| format!("Failed to encode heightmap PNG: {e}"))?;
+
+    Ok(png_bytes)
+}
+
+/// Run ControlNet texture generation: takes terrain PNG + mask + prompt,
+/// reads heightmap from provided data, returns a color texture PNG.
+pub fn run_controlnet_texture(
+    app_handle: &tauri::AppHandle,
+    image_data: &[u8],
+    mask_data: &[u8],
+    prompt: &str,
+    heightmap_data: &[f32],
+    hm_width: u32,
+    hm_height: u32,
+) -> Result<Vec<u8>, String> {
+    let root = project_root(app_handle);
+    let python = python_bin(&root);
+    let script = root.join("ml/controlnet_texture.py");
+
+    if !script.exists() {
+        return Err(format!(
+            "ControlNet texture script not found: {}",
+            script.display()
+        ));
+    }
+
+    let tmp_dir = std::env::temp_dir().join("topograph");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
+
+    let image_path = tmp_dir.join("cn_image.png");
+    let depth_path = tmp_dir.join("cn_depth.png");
+    let mask_path = tmp_dir.join("cn_mask.png");
+    let output_path = tmp_dir.join("cn_output.png");
+
+    // Write captured terrain image
+    std::fs::write(&image_path, image_data)
+        .map_err(|e| format!("Failed to write image: {e}"))?;
+
+    // Convert heightmap to grayscale PNG for ControlNet depth conditioning
+    let depth_png = heightmap_to_grayscale_png(heightmap_data, hm_width, hm_height)?;
+    std::fs::write(&depth_path, &depth_png)
+        .map_err(|e| format!("Failed to write depth image: {e}"))?;
+
+    // Write mask
+    std::fs::write(&mask_path, mask_data)
+        .map_err(|e| format!("Failed to write mask: {e}"))?;
+
+    let output = Command::new(&python)
+        .arg(&script)
+        .arg("--image")
+        .arg(&image_path)
+        .arg("--depth")
+        .arg(&depth_path)
+        .arg("--mask")
+        .arg(&mask_path)
+        .arg("--prompt")
+        .arg(prompt)
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .map_err(|e| format!("Failed to spawn Python: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!(
+            "ControlNet texture generation failed:\nstdout: {stdout}\nstderr: {stderr}"
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let status: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Failed to parse Python output: {e}\nRaw: {stdout}"))?;
+
+    if status["success"] != true {
+        let error = status["error"].as_str().unwrap_or("Unknown error");
+        return Err(format!("ControlNet texture error: {error}"));
+    }
+
+    let result_bytes = std::fs::read(&output_path)
+        .map_err(|e| format!("Failed to read ControlNet output: {e}"))?;
+
+    // Cleanup
+    let _ = std::fs::remove_file(&image_path);
+    let _ = std::fs::remove_file(&depth_path);
+    let _ = std::fs::remove_file(&mask_path);
+    let _ = std::fs::remove_file(&output_path);
+
+    Ok(result_bytes)
+}
+
 /// Decode a PNG mask image (grayscale) into per-pixel f32 weights [0.0, 1.0].
 /// White (255) = 1.0, Black (0) = 0.0.
 pub fn decode_mask_png(png_data: &[u8], width: u32, height: u32) -> Result<Vec<f32>, String> {

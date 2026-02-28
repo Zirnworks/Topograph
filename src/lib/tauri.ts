@@ -108,6 +108,19 @@ export async function runInpainting(
   return new Uint8Array(result);
 }
 
+export async function generateControlnetTexture(
+  imageData: Uint8Array,
+  maskData: Uint8Array,
+  prompt: string,
+): Promise<Uint8Array> {
+  const result: number[] = await invoke("generate_controlnet_texture", {
+    imageData: Array.from(imageData),
+    maskData: Array.from(maskData),
+    prompt,
+  });
+  return new Uint8Array(result);
+}
+
 export async function applyHeightmapImage(
   imageData: Uint8Array,
   maskData?: Uint8Array

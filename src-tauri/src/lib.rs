@@ -79,6 +79,7 @@ pub fn run() {
             commands::abort_erosion,
             commands::run_depth_estimation,
             commands::run_inpainting,
+            commands::generate_controlnet_texture,
             commands::apply_heightmap_image,
             commands::set_heightmap,
             commands::save_project,

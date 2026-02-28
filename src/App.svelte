@@ -65,9 +65,18 @@
             />
             <span class="adjust-label">{Math.round(adjustStrength * 100)}%</span>
           </div>
+          <div class="adjust-texture-row">
+            <button
+              class="adjust-btn texture"
+              onclick={generateAdjustmentTexture}
+              disabled={generatingTexture}
+            >
+              {generatingTexture ? "Generating Texture..." : "Generate Matching Texture"}
+            </button>
+          </div>
           <div class="adjust-actions">
-            <button class="adjust-btn cancel" onclick={cancelAdjustment}>Cancel</button>
-            <button class="adjust-btn confirm" onclick={confirmAdjustment}>Confirm</button>
+            <button class="adjust-btn cancel" onclick={cancelAdjustment} disabled={generatingTexture}>Cancel</button>
+            <button class="adjust-btn confirm" onclick={confirmAdjustment} disabled={generatingTexture}>Confirm</button>
           </div>
         </div>
       </div>
@@ -104,6 +113,7 @@
     abortErosion,
     runDepthEstimation,
     runInpainting,
+    generateControlnetTexture,
     applyHeightmapImage,
     setHeightmap,
     saveProject,
@@ -137,6 +147,8 @@
   let modifiedHeightmap: Float32Array | null = null;
   let hmWidth = 0;
   let hmHeight = 0;
+  let currentPrompt = $state("");
+  let generatingTexture = $state(false);
 
   let unlisten: (() => void) | null = null;
 
@@ -289,15 +301,26 @@
   async function handleInpaint(mask: Uint8Array, prompt: string, mode: AISculptMode) {
     aiMode = "running";
     aiRunning = true;
-    aiStatusText = mode === "heightmap"
-      ? "Generating heightmap with SDXL (~60s)..."
-      : "Generating with SDXL (~60s)...";
     aiError = "";
     currentMask = mask;
     currentAIMode = mode;
+    currentPrompt = prompt;
+
+    if (mode === "texture_gen") {
+      aiStatusText = "Generating texture with ControlNet (~30s)...";
+    } else if (mode === "heightmap") {
+      aiStatusText = "Generating heightmap with SDXL (~60s)...";
+    } else {
+      aiStatusText = "Generating with SDXL (~60s)...";
+    }
 
     try {
-      const result = await runInpainting(capturedTerrain!, mask, prompt, mode);
+      let result: Uint8Array;
+      if (mode === "texture_gen") {
+        result = await generateControlnetTexture(capturedTerrain!, mask, prompt);
+      } else {
+        result = await runInpainting(capturedTerrain!, mask, prompt, mode);
+      }
       inpaintResult = result;
       aiMode = "preview";
     } catch (e: any) {
@@ -316,6 +339,14 @@
     aiError = "";
 
     try {
+      if (currentAIMode === "texture_gen") {
+        // Texture-only: composite texture, no height changes, no strength slider
+        aiStatusText = "Applying texture...";
+        await viewer.compositeTexture(inpaintResult, currentMask);
+        handleCloseAI();
+        return;
+      }
+
       // Snapshot original heightmap before applying
       const origHm = await getHeightmap();
       originalHeightmap = new Float32Array(origHm.data);
@@ -326,7 +357,6 @@
         aiStatusText = "Applying heightmap...";
         const hm = await applyHeightmapImage(inpaintResult, currentMask);
         modifiedHeightmap = new Float32Array(hm.data);
-        // Enter adjustment mode with live slider
         adjustStrength = 0.5;
         applyBlend(0.5);
         aiMode = "adjusting";
@@ -334,7 +364,6 @@
         aiStatusText = "Applying depth estimation...";
         const hm = await runDepthEstimation(inpaintResult, currentMask);
         modifiedHeightmap = new Float32Array(hm.data);
-        // Enter adjustment mode
         adjustStrength = 0.5;
         applyBlend(0.5);
         aiMode = "adjusting";
@@ -359,6 +388,26 @@
 
   function onStrengthChange() {
     applyBlend(adjustStrength);
+  }
+
+  async function generateAdjustmentTexture() {
+    if (!capturedTerrain || !currentMask || !currentPrompt.trim()) return;
+    generatingTexture = true;
+    try {
+      // Commit current blend to Rust so ControlNet reads the correct heightmap
+      const blended = new Float32Array(originalHeightmap!.length);
+      for (let i = 0; i < blended.length; i++) {
+        blended[i] = originalHeightmap![i] * (1 - adjustStrength) + modifiedHeightmap![i] * adjustStrength;
+      }
+      await setHeightmap(blended);
+
+      const result = await generateControlnetTexture(capturedTerrain, currentMask, currentPrompt);
+      await viewer.compositeTexture(result, currentMask);
+    } catch (e: any) {
+      aiError = e?.message || String(e);
+    } finally {
+      generatingTexture = false;
+    }
   }
 
   async function confirmAdjustment() {
@@ -396,6 +445,8 @@
     aiError = "";
     originalHeightmap = null;
     modifiedHeightmap = null;
+    currentPrompt = "";
+    generatingTexture = false;
   }
 </script>
 
@@ -498,6 +549,26 @@
     color: var(--text-secondary);
     min-width: 32px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .adjust-texture-row {
+    margin-bottom: 12px;
+  }
+
+  .adjust-btn.texture {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--accent) 60%, transparent);
+    border: 1px solid var(--accent);
+  }
+
+  .adjust-btn.texture:hover:not(:disabled) {
+    background: var(--accent);
+  }
+
+  .adjust-btn.texture:disabled {
+    opacity: 0.4;
   }
 
   .adjust-actions {
